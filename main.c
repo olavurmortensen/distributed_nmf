@@ -48,7 +48,6 @@ int main(int argc, char* argv[]) {
            *HHT,
            *WHHT,
            res2,  // Sum of squared residuals (each worker's contribution).
-           res2_buf,  // res2 buffer.
            err;  // Error, err = 0.5 * sqrt(sum(res2)).
 
     double randomDouble();  // Generates a random double between 0 and 1.
@@ -206,8 +205,15 @@ int main(int argc, char* argv[]) {
             }
         }
 
+        // TODO: Master send H to workers.
+        // TODO: Workers receive H from master.
+
+        // TODO:
         /* Update W. */
         // Similar to updating H.
+
+        // TODO: Master send W to workers.
+        // TODO: Workers receive W from master.
 
         // Compute the sum of squared residuals.
         // TODO: don't compute the error more often than necessary. It requires too much communication.
@@ -230,8 +236,8 @@ int main(int argc, char* argv[]) {
             // Receive res2 from workers, sum into err.
             err = 0.0;
             for(i = 1; i <= numworkers; i++) {
-                MPI_Recv(&res2_buf, 1, MPI_DOUBLE, i, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-                err += res2_buf;
+                MPI_Recv(&res2, 1, MPI_DOUBLE, i, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+                err += res2;
             }
 
             // Compute reconstruction error from sum of squared residuals.
@@ -242,6 +248,7 @@ int main(int argc, char* argv[]) {
 
 
     // Free memory allocated for all matrices.
+    // TODO: free momory of all matrices.
     free(Wmat);
     free(Hmat);
 
