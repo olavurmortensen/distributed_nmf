@@ -51,6 +51,8 @@ int main(int argc, char* argv[]) {
            res2_buf,  // res2 buffer.
            err;  // Error, err = 0.5 * sqrt(sum(res2)).
 
+    double randomDouble();  // Generates a random double between 0 and 1.
+
     MPI_Status status;
 
     // MPI initialization.
@@ -93,11 +95,28 @@ int main(int argc, char* argv[]) {
         HHT = malloc(n_comp * n_comp * sizeof(double));
         WHHT = malloc(rows * n_comp * sizeof(double));
 
-        // Set all matrices above to zero.
-
         // Randomly initialize Wmat and Hmat.
+        srand(time(NULL));  // Seed for random number generator.
+
+        for(i = 0; i < rows; i++) {
+            for(k = 0; k < n_comp; k++) {
+                Wmat[i * n_comp + k] = randomDouble();
+            }
+        }
+
+        for(i = 0; i < cols; i++) {
+            for(k = 0; k < n_comp; k++) {
+                Hmat[k * cols + i] = randomDouble();
+            }
+        }
+
         
         // Send Wmat and Hmat to workers.
+        // TODO: Non-blocking send. Send matrices to all workers, and use MPI_Waitall to wait for all of the workers to finish receiving the matrices.
+        for(i = 1; i <= numworkers; i++) {
+            MPI_Send(Wmat, rows * n_comp, MPI_DOUBLE, i, TAG, MPI_COMM_WORLD);
+            MPI_Send(Hmat, n_comp * cols, MPI_DOUBLE, i, TAG, MPI_COMM_WORLD);
+        }
     }
     // Allocate matrices on workers.
     else {
@@ -107,7 +126,22 @@ int main(int argc, char* argv[]) {
         VHTblock = malloc(bs_rows * n_comp * sizeof(double));
 
         // Initialize Vcol and Vrow.
-        // In reality, Vcol and Vrow would be read from hard drives on the cluster.
+        // In reality, Vcol and Vrow would be read from hard drives on the cluster, or something along those lines.
+        for(i = 0; i < rows; i++) {
+            for(j = 0; j < bs_cols; j++) {
+                Vcol[i * bs_cols + j] = 0.0;
+            }
+        }
+        for(i = 0; i < bs_rows; i++) {
+            for(j = 0; j < cols; j++) {
+                Vrow[i * cols + j] = 0.0;
+            }
+        }
+
+        // Receive Wmat and Hmat from master.
+        // TODO: Non-blocking receive. Use MPI_Waitall.
+        MPI_Recv(Wmat, rows * n_comp, MPI_DOUBLE, MASTER, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+        MPI_Recv(Hmat, n_comp * cols, MPI_DOUBLE, MASTER, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
     }
 
     // Main algorithm loop.
@@ -132,7 +166,7 @@ int main(int argc, char* argv[]) {
         }
         // Receive WTVblock from workers, store corresponding columns of WTV.
         else {
-            for(i = 1; i < size; i++) {
+            for(i = 1; i <= numworkers; i++) {
                 MPI_Recv(WTVblock, n_comp * bs_cols, MPI_DOUBLE, i, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 
                 // Store WTVblock in WTV.
@@ -156,9 +190,6 @@ int main(int argc, char* argv[]) {
             }
 
             // Compute WTWH = WTW * H
-            for(i = 0; i < n_comp * cols; i++) {
-                WTWH[i] = 0;
-            }
             for(k = 0; k < n_comp; k++) {
                 for(j = 0; j < cols; j++) {
                     WTWH[k * cols + j] = 0.0;  // Initialize element (k, j) to zero.
@@ -179,24 +210,17 @@ int main(int argc, char* argv[]) {
         // Similar to updating H.
 
         // Compute the sum of squared residuals.
+        // TODO: don't compute the error more often than necessary. It requires too much communication.
         if(rank != MASTER) {
             res2 = 0.0;
             for(i = 0; i < rows; i++) {
                 for(j = 0; j < bs_cols; j++) {
-                    //Vrec[i * bs_cols + j] = 0.0;  // Initialize element (i, j) to zero.
                     for(k = 0; k < n_comp; k++) {
                         // Squared difference between V and its reconstruction at point (i, j).
                         res2 += pow(Vcol[i * bs_cols + j] - Wmat[i * n_comp + k] * Hmat[k * cols + j], 2);
-                        //Vrec[i * bs_cols + j] += Wmat[i * n_comp + k] * Hmat[k * cols + j];
                     }
                 }
             }
-
-            // Compute the sum of squared residuals for Vcol.
-            //res2 = 0.0;
-            //for(i = 0; i < rows * bs_cols; i++) {
-            //    res2 += pow(Vcol[i] - Vrec[i], 2);
-            //}
 
             // Send res2 to master.
             MPI_Send(&res2, 1, MPI_DOUBLE, MASTER, TAG, MPI_COMM_WORLD);
@@ -205,7 +229,7 @@ int main(int argc, char* argv[]) {
         else {
             // Receive res2 from workers, sum into err.
             err = 0.0;
-            for(i = 0; i < numworkers; i++) {
+            for(i = 1; i <= numworkers; i++) {
                 MPI_Recv(&res2_buf, 1, MPI_DOUBLE, i, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
                 err += res2_buf;
             }
@@ -213,10 +237,7 @@ int main(int argc, char* argv[]) {
             // Compute reconstruction error from sum of squared residuals.
             err = 0.5 * sqrt(err);
             printf("Reconstruction error: %.4e\n", err);
-
         }
-
-
     }
 
 
@@ -227,5 +248,10 @@ int main(int argc, char* argv[]) {
     MPI_Finalize();
 
     return 0;
+}
+
+double randomDouble() {
+    double r = (double) rand()/(double) RAND_MAX;
+    return r;
 }
 
