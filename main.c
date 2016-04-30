@@ -19,6 +19,7 @@
 #include <math.h>
 
 #define MASTER 0  // Rank of master task.
+#define TAG 0  // Tag for MPI messages.
 
 int main(int argc, char* argv[]) {
     int rows,  // Rows in V matrix.
@@ -27,7 +28,6 @@ int main(int argc, char* argv[]) {
         n_iter,  // Number of iterations of the NMF algorithm.
         rank,  // ID of current task.
         size,  // Total number of tasks.
-        tag = 0,  // Tag for MPI messages.
         bs_cols,  // Block size, number of columns of V stored on each process.
         bs_rows,  // Block size, number of rows of V stored on each process.
         numworkers,
@@ -37,7 +37,6 @@ int main(int argc, char* argv[]) {
 
     double *Vcol,  // Subset of columns of V.
            *Vrow,  // Subset of rows of V.
-           *Vrec,  // Reconstruction of V. Vrec = W * H. 
            *Wmat,  // Dictionary, W.
            *Hmat,  // Activation, H.
            *WTV,
@@ -106,7 +105,6 @@ int main(int argc, char* argv[]) {
         Vrow = malloc(bs_rows * cols * sizeof(double));
         WTVblock = malloc(n_comp * bs_cols * sizeof(double));
         VHTblock = malloc(bs_rows * n_comp * sizeof(double));
-        Vrec = malloc(rows * bs_cols * sizeof(double));
 
         // Initialize Vcol and Vrow.
         // In reality, Vcol and Vrow would be read from hard drives on the cluster.
@@ -120,33 +118,36 @@ int main(int argc, char* argv[]) {
         // Compute WTVblock.
         if(rank != MASTER) {
             for(k = 0; k < n_comp; k++) {
-                for(i = 0; i < rows; i++) {
-                    for(j = 0; j < bs_cols; j++) {
+                for(j = 0; j < bs_cols; j++) {
+                    WTVblock[k * bs_cols + j] = 0.0;  // Initialize element (k, j) to zero.
+                    for(i = 0; i < rows; i++) {
                         // Note that the transpose of Wmat is accessed here.
-                        // TODO: make sure this is correct. These indeces are confusing.
                         WTVblock[k * bs_cols + j] += Wmat[i * rows + k] * Vcol[i * bs_cols + j];
                     }
                 }
             }
 
             // Send WTVblock to master.
-            MPI_Send(WTVblock, n_comp * bs_cols, MPI_DOUBLE, 0, tag, MPI_COMM_WORLD);
+            MPI_Send(WTVblock, n_comp * bs_cols, MPI_DOUBLE, 0, TAG, MPI_COMM_WORLD);
         }
         // Receive WTVblock from workers, store corresponding columns of WTV.
         else {
             for(i = 1; i < size; i++) {
                 MPI_Recv(WTVblock, n_comp * bs_cols, MPI_DOUBLE, i, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 
-                // TODO: Store WTVblock in WTV.
+                // Store WTVblock in WTV.
+                // TODO: make sure this is correct. These indeces are confusing.
+                for(j = 0; j < bs_cols; j++) {
+                    for(k = 0; k < n_comp; k++) {
+                        WTV[k * cols + (rank - 1) * bs_cols + j] = WTVblock[k * bs_cols + j];
+                    }
+                }
             }
 
             // Compute WTW = W' * W
-            // First, we set WTW to zero.
-            for(i = 0; i < n_comp * n_comp; i++) {
-                WTW[i] = 0;
-            }
             for(k = 0; k < n_comp; k++) {
                 for(i = 0; i < n_comp; i++) {
+                    WTW[k * n_comp + i] = 0.0;  // Initialize element (k, i) to zero.
                     for(j = 0; j < rows; j++) {
                         // Note that the transpose of Wmat is accessed here (W' * W).
                         WTW[k * n_comp + i] += Wmat[j * rows + k] * Wmat[j * n_comp + i];
@@ -159,8 +160,9 @@ int main(int argc, char* argv[]) {
                 WTWH[i] = 0;
             }
             for(k = 0; k < n_comp; k++) {
-                for(i = 0; i < n_comp; i++) {
-                    for(j = 0; j < cols; j++) {
+                for(j = 0; j < cols; j++) {
+                    WTWH[k * cols + j] = 0.0;  // Initialize element (k, j) to zero.
+                    for(i = 0; i < n_comp; i++) {
                         // Note that the transpose of Wmat is accessed here (W' * W).
                         WTWH[k * cols + j] += WTW[k * n_comp + i] * Hmat[i * cols + j];
                     }
@@ -176,24 +178,28 @@ int main(int argc, char* argv[]) {
         /* Update W. */
         // Similar to updating H.
 
-        // Compute Vrec.
+        // Compute the sum of squared residuals.
         if(rank != MASTER) {
+            res2 = 0.0;
             for(i = 0; i < rows; i++) {
                 for(j = 0; j < bs_cols; j++) {
-                    Vrec[i * bs_cols + j] = 0.0;  // Initialize element (i, j) to zero.
+                    //Vrec[i * bs_cols + j] = 0.0;  // Initialize element (i, j) to zero.
                     for(k = 0; k < n_comp; k++) {
-                        Vrec[i * bs_cols + j] += Wmat[i * n_comp + k] * Hmat[k * cols + j];
+                        // Squared difference between V and its reconstruction at point (i, j).
+                        res2 += pow(Vcol[i * bs_cols + j] - Wmat[i * n_comp + k] * Hmat[k * cols + j], 2);
+                        //Vrec[i * bs_cols + j] += Wmat[i * n_comp + k] * Hmat[k * cols + j];
                     }
                 }
             }
 
             // Compute the sum of squared residuals for Vcol.
-            res2 = 0.0;
-            for(i = 0; i < rows * bs_cols; i++) {
-                res2 += pow(Vcol[i] - Vrec[i], 2);
-            }
+            //res2 = 0.0;
+            //for(i = 0; i < rows * bs_cols; i++) {
+            //    res2 += pow(Vcol[i] - Vrec[i], 2);
+            //}
 
             // Send res2 to master.
+            MPI_Send(&res2, 1, MPI_DOUBLE, MASTER, TAG, MPI_COMM_WORLD);
         }
         // 
         else {
