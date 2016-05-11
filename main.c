@@ -6,8 +6,13 @@
  * Compute Non-negative Matrix Factorization (NMF) of an input matrix V into dictionary W and activation H.
  *
  * Input:
+ * rows:        Number of rows in V.
+ * cols:        Number of columns in V.
+ * n_comp:      Number of components, common dimension of W and H.
+ * n_iter:      Number of iterations of the optimization algorithm.
  * 
  * Call example:
+ * mpiexec -n 100 ./dnmf_exec 1000 1000 10 100
  *
  * AUTHOR: Olavur Mortensen.
  * 
@@ -17,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <time.h>
 
 #define MASTER 0  // Rank of master task.
 #define TAG 0  // Tag for MPI messages.
@@ -96,7 +102,8 @@ int main(int argc, char* argv[]) {
 
         // Randomly initialize Wmat and Hmat.
         srand(time(NULL));  // Seed for random number generator.
-
+        
+        // TODO: add a small number ("epsilon") to W and H to ensure non-zero initial values.
         for(i = 0; i < rows; i++) {
             for(k = 0; k < n_comp; k++) {
                 Wmat[i * n_comp + k] = randomDouble();
@@ -109,7 +116,6 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        
         // Send Wmat and Hmat to workers.
         // TODO: Non-blocking send. Send matrices to all workers, and use MPI_Waitall to wait for all of the workers to finish receiving the matrices.
         for(i = 1; i <= numworkers; i++) {
@@ -126,14 +132,15 @@ int main(int argc, char* argv[]) {
 
         // Initialize Vcol and Vrow.
         // In reality, Vcol and Vrow would be read from hard drives on the cluster, or something along those lines.
+        // TODO: randomly initialize Vcol and communicate to get Vrow.
         for(i = 0; i < rows; i++) {
             for(j = 0; j < bs_cols; j++) {
-                Vcol[i * bs_cols + j] = 0.0;
+                Vcol[i * bs_cols + j] = 1.0;
             }
         }
         for(i = 0; i < bs_rows; i++) {
             for(j = 0; j < cols; j++) {
-                Vrow[i * cols + j] = 0.0;
+                Vrow[i * cols + j] = 1.0;
             }
         }
 
@@ -145,8 +152,40 @@ int main(int argc, char* argv[]) {
 
     // Main algorithm loop.
     for(iter = 0; iter < n_iter; iter++) {
+        /* Compute the sum of squared residuals. */
+        /* -------------------------------------------------- */
+
+        // TODO: don't compute the error more often than necessary. It requires too much communication.
+        if(rank != MASTER) {
+            res2 = 0.0;
+            for(i = 0; i < rows; i++) {
+                for(j = 0; j < bs_cols; j++) {
+                    for(k = 0; k < n_comp; k++) {
+                        // Squared difference between V and its reconstruction at point (i, j).
+                        res2 += pow(Vcol[i * bs_cols + j] - Wmat[i * n_comp + k] * Hmat[k * cols + j], 2);
+                    }
+                }
+            }
+
+            // Send res2 to master.
+            MPI_Send(&res2, 1, MPI_DOUBLE, MASTER, TAG, MPI_COMM_WORLD);
+        }
+        // 
+        else {
+            // Receive res2 from workers, sum into err.
+            err = 0.0;
+            for(i = 1; i <= numworkers; i++) {
+                MPI_Recv(&res2, 1, MPI_DOUBLE, i, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+                err += res2;
+            }
+
+            // Compute reconstruction error from sum of squared residuals.
+            err = 0.5 * sqrt(err);
+            printf("Reconstruction error: %.4e\n", err);
+        }
 
         /* Update H. */
+        /* -------------------------------------------------- */
 
         // Compute WTVblock.
         if(rank != MASTER) {
@@ -210,47 +249,31 @@ int main(int argc, char* argv[]) {
 
         // TODO:
         /* Update W. */
+        /* -------------------------------------------------- */
         // Similar to updating H.
 
         // TODO: Master send W to workers.
         // TODO: Workers receive W from master.
-
-        // Compute the sum of squared residuals.
-        // TODO: don't compute the error more often than necessary. It requires too much communication.
-        if(rank != MASTER) {
-            res2 = 0.0;
-            for(i = 0; i < rows; i++) {
-                for(j = 0; j < bs_cols; j++) {
-                    for(k = 0; k < n_comp; k++) {
-                        // Squared difference between V and its reconstruction at point (i, j).
-                        res2 += pow(Vcol[i * bs_cols + j] - Wmat[i * n_comp + k] * Hmat[k * cols + j], 2);
-                    }
-                }
-            }
-
-            // Send res2 to master.
-            MPI_Send(&res2, 1, MPI_DOUBLE, MASTER, TAG, MPI_COMM_WORLD);
-        }
-        // 
-        else {
-            // Receive res2 from workers, sum into err.
-            err = 0.0;
-            for(i = 1; i <= numworkers; i++) {
-                MPI_Recv(&res2, 1, MPI_DOUBLE, i, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-                err += res2;
-            }
-
-            // Compute reconstruction error from sum of squared residuals.
-            err = 0.5 * sqrt(err);
-            printf("Reconstruction error: %.4e\n", err);
-        }
     }
 
 
     // Free memory allocated for all matrices.
-    // TODO: free momory of all matrices.
     free(Wmat);
     free(Hmat);
+
+    if(rank == MASTER) {
+        free(WTV);
+        free(WTW);
+        free(WTWH);
+        free(VHT);
+        free(HHT);
+        free(WHHT);
+    } else {
+        free(Vcol);
+        free(Vrow);
+        free(WTVblock);
+        free(VHTblock);
+    }
 
     MPI_Finalize();
 
