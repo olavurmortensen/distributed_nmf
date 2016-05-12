@@ -40,7 +40,7 @@ int main(int argc, char* argv[]) {
         numworkers,
         errorcode,
         iter,
-        i, j, k;  // Index variables.
+        i, j, k, m;  // Index variables.
 
     double *Vcol,  // Subset of columns of V.
            *Vrow,  // Subset of rows of V.
@@ -96,16 +96,16 @@ int main(int argc, char* argv[]) {
 
     /* Allocate matrices on master. */
     if(rank == MASTER) {
-        Wmat_master = malloc(rows * n_comp * sizeof *Wmat_master);
-        Hmat_master = malloc(n_comp * cols * sizeof *Hmat_master);
-        WTV = malloc(n_comp * cols * sizeof *WTV);
-        WTW = malloc(n_comp * n_comp * sizeof *WTW);
-        WTWH = malloc(n_comp * cols * sizeof *WTWH);
-        VHT = malloc(rows * n_comp * sizeof *VHT);
-        HHT = malloc(n_comp * n_comp * sizeof *HHT);
-        WHHT = malloc(rows * n_comp * sizeof *WHHT);
-        WTVblock_master = malloc(n_comp * bs_cols * sizeof *WTVblock_master);
-        VHTblock_master = malloc(bs_rows * n_comp * sizeof *VHTblock_master);
+        Wmat_master = malloc(rows * n_comp * sizeof(double));
+        Hmat_master = malloc(n_comp * cols * sizeof(double));
+        WTV = malloc(n_comp * cols * sizeof(double));
+        WTW = malloc(n_comp * n_comp * sizeof(double));
+        WTWH = malloc(n_comp * cols * sizeof(double));
+        VHT = malloc(rows * n_comp * sizeof(double));
+        HHT = malloc(n_comp * n_comp * sizeof(double));
+        WHHT = malloc(rows * n_comp * sizeof(double));
+        WTVblock_master = malloc(n_comp * bs_cols * sizeof(double));
+        VHTblock_master = malloc(bs_rows * n_comp * sizeof(double));
 
         // Randomly initialize Wmat and Hmat.
         srand(time(NULL));  // Seed for random number generator.
@@ -132,12 +132,12 @@ int main(int argc, char* argv[]) {
     }
     /* Allocate matrices on workers. */
     else {
-        Wmat_worker = malloc(rows * n_comp * sizeof *Wmat_worker);
-        Hmat_worker = malloc(n_comp * cols * sizeof *Hmat_worker);
-        Vcol = malloc(rows * bs_cols * sizeof *Vcol);
-        Vrow = malloc(bs_rows * cols * sizeof *Vrow);
-        WTVblock_worker = malloc(n_comp * bs_cols * sizeof *WTVblock_worker);
-        VHTblock_worker = malloc(bs_rows * n_comp * sizeof *VHTblock_worker);
+        Wmat_worker = malloc(rows * n_comp * sizeof(double));
+        Hmat_worker = malloc(n_comp * cols * sizeof(double));
+        Vcol = malloc(rows * bs_cols * sizeof(double));
+        Vrow = malloc(bs_rows * cols * sizeof(double));
+        WTVblock_worker = malloc(n_comp * bs_cols * sizeof(double));
+        VHTblock_worker = malloc(bs_rows * n_comp * sizeof(double));
 
         // Initialize Vcol and Vrow.
         // In reality, Vcol and Vrow would be read from hard drives on the cluster, or something along those lines.
@@ -203,7 +203,7 @@ int main(int argc, char* argv[]) {
                     WTVblock_worker[k * bs_cols + j] = 0.0;  // Initialize element (k, j) to zero.
                     for(i = 0; i < rows; i++) {
                         // Note that the transpose of Wmat is accessed here.
-                        WTVblock_worker[k * bs_cols + j] += Wmat_worker[i * rows + k] * Vcol[i * bs_cols + j];
+                        WTVblock_worker[k * bs_cols + j] += Wmat_worker[k * rows + i] * Vcol[i * bs_cols + j];
                     }
                 }
             }
@@ -217,21 +217,12 @@ int main(int argc, char* argv[]) {
             for(i = 1; i <= numworkers; i++) {
                 MPI_Recv(WTVblock_master, n_comp * bs_cols, MPI_DOUBLE, i, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 
-                //for(i = 0; i < bs_cols; i++) {
-                //    for(j = 0; j < n_comp; j++) {
-                //        printf("%f ", WTVblock_master[j * bs_cols + i]);
-                //    }
-                //    printf("\n");
-                //}
-                //printf("\n");
-                //printf("\n");
-
-
                 // Store WTVblock in WTV.
                 // TODO: make sure this is correct. These indeces are confusing.
                 for(j = 0; j < bs_cols; j++) {
                     for(k = 0; k < n_comp; k++) {
-                        WTV[k * cols + (rank - 1) * bs_cols + j] = WTVblock_master[k * bs_cols + j];
+                        WTV[k * cols + (i - 1) * bs_cols + j] = WTVblock_master[k * bs_cols + j];
+                        //printf("%f\n", WTV[k * cols + (rank - 1) * bs_cols + j]);
                     }
                 }
             }
@@ -242,7 +233,7 @@ int main(int argc, char* argv[]) {
                     WTW[k * n_comp + i] = 0.0;  // Initialize element (k, i) to zero.
                     for(j = 0; j < rows; j++) {
                         // Note that the transpose of Wmat is accessed here (W' * W).
-                        WTW[k * n_comp + i] += Wmat_master[j * rows + k] * Wmat_master[j * n_comp + i];
+                        WTW[k * n_comp + i] += Wmat_master[k * rows + i] * Wmat_master[j * n_comp + i];
                     }
                 }
             }
@@ -257,6 +248,16 @@ int main(int argc, char* argv[]) {
                     }
                 }
             }
+
+            //for(i = 0; i < cols; i++) {
+            //    for(j = 0; j < n_comp; j++) {
+            //        printf("%f ",Hmat_master[j * cols + i]);
+            //    }
+            //    printf("\n");
+            //}
+            //printf("\n");
+            //printf("\n");
+
 
             // Update H.
             for(i = 0; i < n_comp * cols; i++) {
@@ -281,16 +282,16 @@ int main(int argc, char* argv[]) {
     // Free memory allocated for all matrices.
 
     if(rank == MASTER) {
-        //free(Wmat_master);
-        //free(Hmat_master);
-        //free(WTV);
-        //free(WTW);
-        //free(WTWH);
-        //free(VHT);
-        //free(HHT);
-        //free(WHHT);
-        //free(WTVblock_master);
-        //free(VHTblock_master);
+        free(Wmat_master);
+        free(Hmat_master);
+        free(WTV);
+        free(WTW);
+        free(WTWH);
+        free(VHT);
+        free(HHT);
+        free(WHHT);
+        free(WTVblock_master);
+        free(VHTblock_master);
     } else {
         free(Wmat_worker);
         free(Hmat_worker);
