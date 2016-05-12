@@ -154,7 +154,6 @@ int main(int argc, char* argv[]) {
     for(iter = 0; iter < n_iter; iter++) {
         /* Compute the sum of squared residuals. */
         /* -------------------------------------------------- */
-
         // TODO: don't compute the error more often than necessary. It requires too much communication.
         if(rank != MASTER) {
             res2 = 0.0;
@@ -166,27 +165,19 @@ int main(int argc, char* argv[]) {
                     }
                 }
             }
-
-            // Send res2 to master.
-            MPI_Send(&res2, 1, MPI_DOUBLE, MASTER, TAG, MPI_COMM_WORLD);
         }
-        // 
-        else {
-            // Receive res2 from workers, sum into err.
-            err = 0.0;
-            for(i = 1; i <= numworkers; i++) {
-                MPI_Recv(&res2_buff, 1, MPI_DOUBLE, i, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-                err += res2_buff;
-            }
 
-            // Compute reconstruction error from sum of squared residuals.
-            err = 0.5 * sqrt(err);
+        // Sum all squared residuals on master.
+        MPI_Reduce(&res2, &res2_buff, 1, MPI_DOUBLE, MPI_SUM, MASTER, MPI_COMM_WORLD);
+
+        if(rank == MASTER) {
+            // Compute and print reconstruction error.
+            err = 0.5 * sqrt(res2_buff);
             printf("Reconstruction error: %.4e\n", err);
         }
 
         /* Update H. */
         /* -------------------------------------------------- */
-
         // Compute WTVblock.
         if(rank != MASTER) {
             for(k = 0; k < n_comp; k++) {
