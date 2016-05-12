@@ -94,10 +94,13 @@ int main(int argc, char* argv[]) {
     bs_cols = (int) ((float) cols / numworkers);
     bs_rows = (int) ((float) rows / numworkers);
 
-    /* Allocate matrices on master. */
+    /* Allocate matrices. */
+    /* ----------------------------------------------- */
     if(rank == MASTER) {
         Wmat_master = malloc(rows * n_comp * sizeof(double));
         Hmat_master = malloc(n_comp * cols * sizeof(double));
+        Wmat_worker = malloc(rows * n_comp * sizeof(double));
+        Hmat_worker = malloc(n_comp * cols * sizeof(double));
         WTV = malloc(n_comp * cols * sizeof(double));
         WTW = malloc(n_comp * n_comp * sizeof(double));
         WTWH = malloc(n_comp * cols * sizeof(double));
@@ -122,18 +125,13 @@ int main(int argc, char* argv[]) {
                 Hmat_master[k * cols + i] = randomDouble();
             }
         }
-
-        // Send Wmat and Hmat to workers.
-        // TODO: Non-blocking send. Send matrices to all workers, and use MPI_Waitall to wait for all of the workers to finish receiving the matrices.
-        for(i = 1; i <= numworkers; i++) {
-            MPI_Send(Wmat_master, rows * n_comp, MPI_DOUBLE, i, TAG, MPI_COMM_WORLD);
-            MPI_Send(Hmat_master, n_comp * cols, MPI_DOUBLE, i, TAG, MPI_COMM_WORLD);
-        }
     }
-    /* Allocate matrices on workers. */
     else {
+        // Allocate matrices on workers.
         Wmat_worker = malloc(rows * n_comp * sizeof(double));
         Hmat_worker = malloc(n_comp * cols * sizeof(double));
+        Wmat_master = malloc(rows * n_comp * sizeof(double));
+        Hmat_master = malloc(n_comp * cols * sizeof(double));
         Vcol = malloc(rows * bs_cols * sizeof(double));
         Vrow = malloc(bs_rows * cols * sizeof(double));
         WTVblock_worker = malloc(n_comp * bs_cols * sizeof(double));
@@ -152,11 +150,24 @@ int main(int argc, char* argv[]) {
                 Vrow[i * cols + j] = 1.0;
             }
         }
+    }
 
-        // Receive Wmat and Hmat from master.
-        // TODO: Non-blocking receive. Use MPI_Waitall.
-        MPI_Recv(Wmat_worker, rows * n_comp, MPI_DOUBLE, MASTER, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-        MPI_Recv(Hmat_worker, n_comp * cols, MPI_DOUBLE, MASTER, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+    /* Send W and H from master to workers using collective communications. */
+    //printf("%d %d\n", errorcode, rank);
+    MPI_Scatter(Wmat_master, rows * n_comp, MPI_DOUBLE, Wmat_worker, rows * n_comp, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
+    MPI_Scatter(Hmat_master, n_comp * cols, MPI_DOUBLE, Hmat_worker, n_comp * cols, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
+
+    if(rank == 19) {
+
+        for(i = 0; i < cols; i++) {
+            for(j = 0; j < n_comp; j++) {
+                printf("%f ", Hmat_worker[i * n_comp + j]);
+            }
+            printf("\n");
+        }
+        printf("\n");
+        printf("\n");
+
     }
 
     /* Main algorithm loop. */
@@ -249,16 +260,6 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            //for(i = 0; i < cols; i++) {
-            //    for(j = 0; j < n_comp; j++) {
-            //        printf("%f ",Hmat_master[j * cols + i]);
-            //    }
-            //    printf("\n");
-            //}
-            //printf("\n");
-            //printf("\n");
-
-
             // Update H.
             for(i = 0; i < n_comp * cols; i++) {
                 Hmat_master[i] = Hmat_master[i] * (WTV[i] / (WTWH[i] + DBL_EPSILON));
@@ -284,6 +285,8 @@ int main(int argc, char* argv[]) {
     if(rank == MASTER) {
         free(Wmat_master);
         free(Hmat_master);
+        free(Wmat_worker);
+        free(Hmat_worker);
         free(WTV);
         free(WTW);
         free(WTWH);
