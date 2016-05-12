@@ -39,6 +39,8 @@ int main(int argc, char* argv[]) {
         bs_rows,  // Block size, number of rows of V stored on each process.
         *displs,  // Used in MPI_Gatherv().
         *rcounts,  // Used in MPI_Gatherv().
+        *displsW,
+        *rcountsW,
         numworkers,
         errorcode,
         iter,
@@ -93,6 +95,7 @@ int main(int argc, char* argv[]) {
     bs_rows = (int) ((float) rows / numworkers);
 
     // Used in MPI_Gather()
+    // First for when updating H.
     displs = malloc(size * sizeof(int));
     rcounts = malloc(size * sizeof(int));
     displs[0] = 0;
@@ -101,14 +104,23 @@ int main(int argc, char* argv[]) {
         displs[i] = (i - 1) * n_comp * bs_cols;
         rcounts[i] = n_comp * bs_cols;
     }
+    // Also for when updating W.
+    displsW = malloc(size * sizeof(int));
+    rcountsW = malloc(size * sizeof(int));
+    displsW[0] = 0;
+    rcountsW[0] = 0;
+    for(i = 1; i < size; i++) {
+        displsW[i] = (i - 1) * bs_rows * n_comp;
+        rcountsW[i] = bs_rows * n_comp;
+    }
 
     /* Allocate matrices. */
     /* ----------------------------------------------- */
     WTVblock = malloc(n_comp * bs_cols * sizeof(double));
     VHTblock = malloc(bs_rows * n_comp * sizeof(double));
+    Wmat = malloc(rows * n_comp * sizeof(double));
+    Hmat = malloc(n_comp * cols * sizeof(double));
     if(rank == MASTER) {
-        Wmat = malloc(rows * n_comp * sizeof(double));
-        Hmat = malloc(n_comp * cols * sizeof(double));
         WTV = malloc(n_comp * cols * sizeof(double));
         WTW = malloc(n_comp * n_comp * sizeof(double));
         WTWH = malloc(n_comp * cols * sizeof(double));
@@ -119,23 +131,20 @@ int main(int argc, char* argv[]) {
         // Randomly initialize Wmat and Hmat.
         srand(time(NULL));  // Seed for random number generator.
         
-        // TODO: add a small number ("epsilon") to W and H to ensure non-zero initial values.
         for(i = 0; i < rows; i++) {
             for(k = 0; k < n_comp; k++) {
-                Wmat[i * n_comp + k] = randomDouble();
+                Wmat[i * n_comp + k] = randomDouble() + DBL_EPSILON;
             }
         }
 
         for(i = 0; i < cols; i++) {
             for(k = 0; k < n_comp; k++) {
-                Hmat[k * cols + i] = randomDouble();
+                Hmat[k * cols + i] = randomDouble() + DBL_EPSILON;
             }
         }
     }
     else {
         // Allocate matrices on workers.
-        Wmat = malloc(rows * n_comp * sizeof(double));
-        Hmat = malloc(n_comp * cols * sizeof(double));
         Vcol = malloc(rows * bs_cols * sizeof(double));
         Vrow = malloc(bs_rows * cols * sizeof(double));
 
@@ -187,7 +196,6 @@ int main(int argc, char* argv[]) {
         /* Update H. */
         /* -------------------------------------------------- */
         // Compute WTVblock.
-        // TODO: use MPI_Gather to send WTV.
         if(rank != MASTER) {
             for(k = 0; k < n_comp; k++) {
                 for(j = 0; j < bs_cols; j++) {
@@ -204,14 +212,6 @@ int main(int argc, char* argv[]) {
         MPI_Gatherv(WTVblock, n_comp * bs_cols, MPI_DOUBLE, WTV, rcounts, displs, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
 
         if(rank == MASTER) {
-            //for(i = 0; i < cols; i++) {
-            //    for(j = 0; j < n_comp; j++) {
-            //        printf("%f ", WTV[i * n_comp + j]);
-            //    }
-            //    printf("\n");
-            //}
-            //printf("\n");
-            //printf("\n");
 
             // Compute WTW = W' * W
             for(k = 0; k < n_comp; k++) {
@@ -229,7 +229,6 @@ int main(int argc, char* argv[]) {
                 for(j = 0; j < cols; j++) {
                     WTWH[k * cols + j] = 0.0;  // Initialize element (k, j) to zero.
                     for(i = 0; i < n_comp; i++) {
-                        // Note that the transpose of Wmat is accessed here (W' * W).
                         WTWH[k * cols + j] += WTW[k * n_comp + i] * Hmat[i * cols + j];
                     }
                 }
@@ -241,29 +240,85 @@ int main(int argc, char* argv[]) {
             }
 
         }
+        if(rank == MASTER) {
+            for(i = 0; i < cols; i++) {
+                for(j = 0; j < n_comp; j++) {
+                    printf("%f ", Hmat[j * cols + i]);
+                }
+                printf("\n");
+            }
+            printf("\n");
+            printf("\n");
+        }
 
         // Master send H to workers.
         MPI_Bcast(Hmat, n_comp * cols, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
 
-        // TODO:
         /* Update W. */
         /* -------------------------------------------------- */
         // Similar to updating H.
+        // Compute VHTblock.
+        //if(rank != MASTER) {
+        //    for(k = 0; k < n_comp; k++) {
+        //        for(j = 0; j < bs_rows; j++) {
+        //            VHTblock[k * bs_rows + j] = 0.0;  // Initialize element (k, j) to zero.
+        //            for(i = 0; i < cols; i++) {
+        //                // Note that the transpose of Hmat is accessed here.
+        //                VHTblock[k * bs_rows + j] += Vrow[j * cols + i] * Hmat[i * n_comp + k];
+        //            }
+        //        }
+        //    }
+        //}
 
-        // TODO: Master send W to workers.
-        // TODO: Workers receive W from master.
+        //// Send blocks of VHT to master, concatenate into one array.
+        //MPI_Gatherv(VHTblock, bs_rows * n_comp, MPI_DOUBLE, VHT, rcountsW, displsW, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
+
+        //if(rank == MASTER) {
+        //    // Compute HHT = H * H'.
+        //    for(k = 0; k < n_comp; k++) {
+        //        for(i = 0; i < n_comp; i++) {
+        //            HHT[k * n_comp + i] = 0.0;  // Initialize element (k, i) to zero.
+        //            for(j = 0; j < cols; j++) {
+        //                // Note that the transpose of Hmat is accessed here (H * H').
+        //                HHT[k * n_comp + i] += Hmat[k * cols + j] * Hmat[j * n_comp + i];
+        //            }
+        //        }
+        //    }
+
+        //    // Compute WHHT = W * HHT
+        //    for(k = 0; k < n_comp; k++) {
+        //        for(j = 0; j < rows; j++) {
+        //            WHHT[k * rows + j] = 0.0;  // Initialize element (k, j) to zero.
+        //            for(i = 0; i < n_comp; i++) {
+        //                WHHT[j * n_comp + i] += Wmat[k * n_comp + j] * HHT[k * n_comp + i];
+        //            }
+        //        }
+        //    }
+
+        //    // Update W.
+        //    for(i = 0; i < rows * n_comp; i++) {
+        //        Wmat[i] = Wmat[i] * (VHT[i] / (WHHT[i] + DBL_EPSILON));
+        //    }
+
+        //}
+
+        ////// Master send H to workers.
+        //MPI_Bcast(Wmat, rows * n_comp, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
+
     }
 
 
     // Free memory allocated for all matrices.
 
+    free(Wmat);
+    free(Hmat);
     free(displs);
     free(rcounts);
+    free(displsW);
+    free(rcountsW);
     free(WTVblock);
     free(VHTblock);
     if(rank == MASTER) {
-        free(Wmat);
-        free(Hmat);
         free(WTV);
         free(WTW);
         free(WTWH);
@@ -271,8 +326,6 @@ int main(int argc, char* argv[]) {
         free(HHT);
         free(WHHT);
     } else {
-        free(Wmat);
-        free(Hmat);
         free(Vcol);
         free(Vrow);
     }
