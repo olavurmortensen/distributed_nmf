@@ -52,6 +52,7 @@ int main(int argc, char* argv[]) {
            *Hmat,  // Activation, H.
            *WTV,
            *WTVblock,
+           *WTVrecv,
            *WTW,
            *WTWH,
            *VHT,
@@ -94,7 +95,7 @@ int main(int argc, char* argv[]) {
     bs_cols = (int) ((float) cols / numworkers);
     bs_rows = (int) ((float) rows / numworkers);
 
-    // Used in MPI_Gather()
+    // Used in MPI_Gatherv()
     // First for when updating H.
     displs = malloc(size * sizeof(int));
     rcounts = malloc(size * sizeof(int));
@@ -178,7 +179,10 @@ int main(int argc, char* argv[]) {
                 for(j = 0; j < bs_cols; j++) {
                     for(k = 0; k < n_comp; k++) {
                         // Squared difference between V and its reconstruction at point (i, j).
-                        res2 += pow(Vcol[i * bs_cols + j] - Wmat[i * n_comp + k] * Hmat[k * cols + j], 2);
+                        res2 += pow(Vcol[i * bs_cols + j] - Wmat[i * n_comp + k] * Hmat[k * cols + (rank - 1) * bs_cols + j], 2);
+                        //if(rank == 2){
+                        //    printf("%d %d\n", k, (rank - 1) * bs_cols + j);
+                        //}
                     }
                 }
             }
@@ -201,25 +205,46 @@ int main(int argc, char* argv[]) {
                 for(j = 0; j < bs_cols; j++) {
                     WTVblock[k * bs_cols + j] = 0.0;  // Initialize element (k, j) to zero.
                     for(i = 0; i < rows; i++) {
-                        // Note that the transpose of Wmat is accessed here.
-                        WTVblock[k * bs_cols + j] += Wmat[k * rows + i] * Vcol[i * bs_cols + j];
+                        WTVblock[k * bs_cols + j] += Wmat[i * n_comp + k] * Vcol[i * bs_cols + j];
                     }
                 }
             }
         }
 
         // Send blocks of WTV to master, concatenate into one array.
-        MPI_Gatherv(WTVblock, n_comp * bs_cols, MPI_DOUBLE, WTV, rcounts, displs, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
+        MPI_Gatherv(WTVblock, n_comp * bs_cols, MPI_DOUBLE, WTVrecv, rcounts, displs, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
+
+
+        //printf("rank: %d\n", rank);
+        //for(i = 0; i < bs_cols * n_comp; i++) {
+        //    printf("%f ", WTVblock[i]);
+        //}
+        //printf("\n");
+        //printf("\n");
+
 
         if(rank == MASTER) {
-
+            //printf("MASTER rank: %d\n", rank);
+            //for(i = 0; i < cols * n_comp; i++) {
+            //    printf("%f ", WTV[i]);
+            //}
+            //printf("\n");
+            //printf("\n");
+            printf("MASTER rank: %d\n", rank);
+            for(j = 0; j < numworkers; j++) {
+                for(i = 0; i < n_comp * bs_cols; i++) {
+                    printf("%f ", WTV[j * n_comp * bs_cols + i]);
+                }
+                printf("\n");
+            }
+            printf("\n");
+            printf("\n");
             // Compute WTW = W' * W
             for(k = 0; k < n_comp; k++) {
                 for(i = 0; i < n_comp; i++) {
                     WTW[k * n_comp + i] = 0.0;  // Initialize element (k, i) to zero.
                     for(j = 0; j < rows; j++) {
-                        // Note that the transpose of Wmat is accessed here (W' * W).
-                        WTW[k * n_comp + i] += Wmat[k * rows + i] * Wmat[j * n_comp + i];
+                        WTW[k * n_comp + i] += Wmat[j * n_comp + k] * Wmat[j * n_comp + i];
                     }
                 }
             }
@@ -239,16 +264,16 @@ int main(int argc, char* argv[]) {
                 Hmat[i] = Hmat[i] * (WTV[i] / (WTWH[i] + DBL_EPSILON));
             }
 
-        }
-        if(rank == MASTER) {
-            for(i = 0; i < cols; i++) {
-                for(j = 0; j < n_comp; j++) {
-                    printf("%f ", Hmat[j * cols + i]);
-                }
-                printf("\n");
-            }
-            printf("\n");
-            printf("\n");
+            //for(i = 0; i < cols; i++) {
+            //    for(j = 0; j < n_comp; j++) {
+            //        printf("%f ", Hmat[j * cols + i]);
+            //    }
+            //    printf("\n");
+            //}
+            //printf("\n");
+            //printf("\n");
+
+
         }
 
         // Master send H to workers.
@@ -302,14 +327,14 @@ int main(int argc, char* argv[]) {
 
         //}
 
-        ////// Master send H to workers.
+        ////// Master send W to workers.
         //MPI_Bcast(Wmat, rows * n_comp, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
 
     }
 
+    // TODO: compute reconstruction error one last time.
 
     // Free memory allocated for all matrices.
-
     free(Wmat);
     free(Hmat);
     free(displs);
