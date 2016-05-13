@@ -61,6 +61,7 @@ int main(int argc, char* argv[]) {
            *WHHT,
            res2,  // Sum of squared residuals (each worker's contribution).
            res2_buff,
+           rec,  // Reconstuction of a single point in the matrix V.
            err;  // Error, err = 0.5 * sqrt(sum(res2)).
 
     double randomDouble();  // Generates a random double between 0 and 1.
@@ -100,16 +101,17 @@ int main(int argc, char* argv[]) {
     displs = malloc(size * sizeof(int));
     rcounts = malloc(size * sizeof(int));
     displs[0] = 0;
-    rcounts[0] = 0;
+    rcounts[0] = 0;  // Master prcess (0) sends no elements in operation => doesn't participate.
     for(i = 1; i < size; i++) {
         displs[i] = (i - 1) * n_comp * bs_cols;
         rcounts[i] = n_comp * bs_cols;
     }
+
     // Also for when updating W.
     displsW = malloc(size * sizeof(int));
     rcountsW = malloc(size * sizeof(int));
     displsW[0] = 0;
-    rcountsW[0] = 0;
+    rcountsW[0] = 0;  // Master prcess (0) sends no elements in operation => doesn't participate.
     for(i = 1; i < size; i++) {
         displsW[i] = (i - 1) * bs_rows * n_comp;
         rcountsW[i] = bs_rows * n_comp;
@@ -117,12 +119,13 @@ int main(int argc, char* argv[]) {
 
     /* Allocate matrices. */
     /* ----------------------------------------------- */
-    WTVblock = malloc(n_comp * bs_cols * sizeof(double));
-    VHTblock = malloc(bs_rows * n_comp * sizeof(double));
     Wmat = malloc(rows * n_comp * sizeof(double));
     Hmat = malloc(n_comp * cols * sizeof(double));
+    WTVblock = malloc(n_comp * bs_cols * sizeof(double));
+    VHTblock = malloc(bs_rows * n_comp * sizeof(double));
     if(rank == MASTER) {
         WTV = malloc(n_comp * cols * sizeof(double));
+        WTVrecv = malloc(n_comp * cols * sizeof(double));
         WTW = malloc(n_comp * n_comp * sizeof(double));
         WTWH = malloc(n_comp * cols * sizeof(double));
         VHT = malloc(rows * n_comp * sizeof(double));
@@ -173,28 +176,30 @@ int main(int argc, char* argv[]) {
         /* Compute the sum of squared residuals. */
         /* -------------------------------------------------- */
         // TODO: don't compute the error more often than necessary. It requires too much communication.
-        if(rank != MASTER) {
-            res2 = 0.0;
-            for(i = 0; i < rows; i++) {
-                for(j = 0; j < bs_cols; j++) {
-                    for(k = 0; k < n_comp; k++) {
-                        // Squared difference between V and its reconstruction at point (i, j).
-                        res2 += pow(Vcol[i * bs_cols + j] - Wmat[i * n_comp + k] * Hmat[k * cols + (rank - 1) * bs_cols + j], 2);
-                        //if(rank == 2){
-                        //    printf("%d %d\n", k, (rank - 1) * bs_cols + j);
-                        //}
+        if(iter % 100 == 0) {
+            if(rank != MASTER) {
+                res2 = 0.0;
+                for(i = 0; i < rows; i++) {
+                    for(j = 0; j < bs_cols; j++) {
+                        rec = 0.0;  // Initialize reconstruction of element (i, j) to zero.
+                        for(k = 0; k < n_comp; k++) {
+                            // Squared difference between V and its reconstruction at point (i, j).
+                            rec += Wmat[i * n_comp + k] * Hmat[k * cols + (rank - 1) * bs_cols + j];
+                        }
+                        // Add the squared residual for the current position.
+                        res2 += pow(Vcol[i * bs_cols + j] - rec, 2);
                     }
                 }
             }
-        }
 
-        // Sum all squared residuals on master.
-        MPI_Reduce(&res2, &res2_buff, 1, MPI_DOUBLE, MPI_SUM, MASTER, MPI_COMM_WORLD);
+            // Sum all squared residuals on master.
+            MPI_Reduce(&res2, &res2_buff, 1, MPI_DOUBLE, MPI_SUM, MASTER, MPI_COMM_WORLD);
 
-        if(rank == MASTER) {
-            // Compute and print reconstruction error.
-            err = 0.5 * sqrt(res2_buff);
-            printf("Reconstruction error: %.4e\n", err);
+            if(rank == MASTER) {
+                // Compute and print reconstruction error.
+                err = 0.5 * sqrt(res2_buff);
+                printf("Reconstruction error: %.4e\n", err);
+            }
         }
 
         /* Update H. */
@@ -209,36 +214,44 @@ int main(int argc, char* argv[]) {
                     }
                 }
             }
+            //printf("rank: %d\n", rank);
+            //for(i = 0; i < n_comp; i++) {
+            //    for(j = 0; j < bs_cols; j++) {
+            //        printf("%f ", WTVblock[i * bs_cols + j]);
+            //    }
+            //    printf("\n");
+            //}
+            //printf("\n");
+            //printf("\n");
         }
 
         // Send blocks of WTV to master, concatenate into one array.
         MPI_Gatherv(WTVblock, n_comp * bs_cols, MPI_DOUBLE, WTVrecv, rcounts, displs, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
 
 
-        //printf("rank: %d\n", rank);
-        //for(i = 0; i < bs_cols * n_comp; i++) {
-        //    printf("%f ", WTVblock[i]);
-        //}
-        //printf("\n");
-        //printf("\n");
-
-
         if(rank == MASTER) {
+
+            // Re-arrange the values in the matrix WTVrecv into matrix WTV.
+            // When WTVblock matrices are concatenated in MPI_Gatherv, the resulting matrix is not the right structure.
+            // This re-arrangement is costly but necessary.
+            // TODO: is this correct?
+            for(i = 0; i < bs_cols; i++) {
+                for(j = 0; j < numworkers; j++) {
+                    for(k = 0; k < n_comp; k++) {
+                        WTV[k * cols + j * bs_cols + i] = WTVrecv[j * n_comp * bs_cols + k * bs_cols + i];
+                    }
+                }
+            }
             //printf("MASTER rank: %d\n", rank);
-            //for(i = 0; i < cols * n_comp; i++) {
-            //    printf("%f ", WTV[i]);
+            //for(i = 0; i < n_comp; i++) {
+            //    for(j = 0; j < cols; j++) {
+            //        printf("%f ", WTV[i * cols + j]);
+            //    }
+            //    printf("\n");
             //}
             //printf("\n");
             //printf("\n");
-            printf("MASTER rank: %d\n", rank);
-            for(j = 0; j < numworkers; j++) {
-                for(i = 0; i < n_comp * bs_cols; i++) {
-                    printf("%f ", WTV[j * n_comp * bs_cols + i]);
-                }
-                printf("\n");
-            }
-            printf("\n");
-            printf("\n");
+
             // Compute WTW = W' * W
             for(k = 0; k < n_comp; k++) {
                 for(i = 0; i < n_comp; i++) {
