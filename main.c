@@ -73,6 +73,7 @@ int main(int argc, char* argv[]) {
     // MPI initialization.
     errorcode = MPI_Init(&argc, &argv);
     if (errorcode != MPI_SUCCESS) {
+        // NOTE: MPI_Abort is not the ideal way to quit MPI.
         printf("Error starting MPI program. Terminating.\n");
         MPI_Abort(MPI_COMM_WORLD, errorcode);
     }
@@ -80,10 +81,12 @@ int main(int argc, char* argv[]) {
     // Get process id (rank) and total number of processes (size).
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
+    numworkers = size - 1;
 
     if(size < 2) {
+        // NOTE: MPI_Abort is not the ideal way to quit MPI.
         printf("dNMF needs at least 2 MPI processes, quitting.\n");
-        MPI_Abort(MPI_COMM_WORLD, errorcode);
+        MPI_Abort(MPI_COMM_WORLD, 1);
         exit(1);
     }
 
@@ -93,7 +96,15 @@ int main(int argc, char* argv[]) {
     n_iter = atoi(argv[4]);
     comp_err = atoi(argv[5]);
 
-    numworkers = size - 1;
+    if(rows % numworkers != 0 || cols % numworkers != 0) {
+        // NOTE: MPI_Abort is not the ideal way to quit MPI.
+        if(rank == MASTER) {
+            printf("Number of rows and columns in input matrix must be divisble by number of workers (number of processes minus 1). In other words, rows modulo numworkers must be 0, and cols modulo numworkers must be zero.\nQuitting...\n");
+        }
+        MPI_Abort(MPI_COMM_WORLD, 1);
+        exit(1);
+    }
+
     // TODO: account for when cols and/or rows does not split evenly among workers.
     // At the moment, assuming cols % numworkers = 0 and rows % numworkers = 0.
     bs_cols = (int) ((float) cols / numworkers);
@@ -201,7 +212,7 @@ int main(int argc, char* argv[]) {
             if(rank == MASTER) {
                 // Compute and print reconstruction error.
                 err = 0.5 * sqrt(res2_buff);
-                printf("Reconstruction error: %.4e\n", err);
+                printf("%.4e\n", err);
             }
         }
 
