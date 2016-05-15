@@ -14,7 +14,7 @@
  * Call example:
  * mpiexec -n 100 ./dnmf_exec 1000 1000 10 100
  *
- * AUTHOR: Olavur Mortensen.
+ * AUTHOR: Olavur Mortensen <olavurmortensen@gmail.com>, 2016.
  * 
  */
 
