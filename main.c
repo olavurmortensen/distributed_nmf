@@ -44,6 +44,7 @@ int main(int argc, char* argv[]) {
         numworkers,
         errorcode,
         iter,
+        comp_err,
         i, j, k, m;  // Index variables.
 
     double *Vcol,  // Subset of columns of V.
@@ -57,6 +58,7 @@ int main(int argc, char* argv[]) {
            *WTWH,
            *VHT,
            *VHTblock,
+           *VHTrecv,
            *HHT,
            *WHHT,
            res2,  // Sum of squared residuals (each worker's contribution).
@@ -89,6 +91,7 @@ int main(int argc, char* argv[]) {
     cols = atoi(argv[2]);
     n_comp = atoi(argv[3]);
     n_iter = atoi(argv[4]);
+    comp_err = atoi(argv[5]);
 
     numworkers = size - 1;
     // TODO: account for when cols and/or rows does not split evenly among workers.
@@ -129,6 +132,7 @@ int main(int argc, char* argv[]) {
         WTW = malloc(n_comp * n_comp * sizeof(double));
         WTWH = malloc(n_comp * cols * sizeof(double));
         VHT = malloc(rows * n_comp * sizeof(double));
+        VHTrecv = malloc(rows * n_comp * sizeof(double));
         HHT = malloc(n_comp * n_comp * sizeof(double));
         WHHT = malloc(rows * n_comp * sizeof(double));
 
@@ -175,8 +179,7 @@ int main(int argc, char* argv[]) {
     for(iter = 0; iter < n_iter; iter++) {
         /* Compute the sum of squared residuals. */
         /* -------------------------------------------------- */
-        // TODO: don't compute the error more often than necessary. It requires too much communication.
-        if(iter % 100 == 0) {
+        if(iter % comp_err == 0) {
             if(rank != MASTER) {
                 res2 = 0.0;
                 for(i = 0; i < rows; i++) {
@@ -214,15 +217,6 @@ int main(int argc, char* argv[]) {
                     }
                 }
             }
-            //printf("rank: %d\n", rank);
-            //for(i = 0; i < n_comp; i++) {
-            //    for(j = 0; j < bs_cols; j++) {
-            //        printf("%f ", WTVblock[i * bs_cols + j]);
-            //    }
-            //    printf("\n");
-            //}
-            //printf("\n");
-            //printf("\n");
         }
 
         // Send blocks of WTV to master, concatenate into one array.
@@ -234,7 +228,6 @@ int main(int argc, char* argv[]) {
             // Re-arrange the values in the matrix WTVrecv into matrix WTV.
             // When WTVblock matrices are concatenated in MPI_Gatherv, the resulting matrix is not the right structure.
             // This re-arrangement is costly but necessary.
-            // TODO: is this correct?
             for(i = 0; i < bs_cols; i++) {
                 for(j = 0; j < numworkers; j++) {
                     for(k = 0; k < n_comp; k++) {
@@ -242,15 +235,6 @@ int main(int argc, char* argv[]) {
                     }
                 }
             }
-            //printf("MASTER rank: %d\n", rank);
-            //for(i = 0; i < n_comp; i++) {
-            //    for(j = 0; j < cols; j++) {
-            //        printf("%f ", WTV[i * cols + j]);
-            //    }
-            //    printf("\n");
-            //}
-            //printf("\n");
-            //printf("\n");
 
             // Compute WTW = W' * W
             for(k = 0; k < n_comp; k++) {
@@ -277,16 +261,6 @@ int main(int argc, char* argv[]) {
                 Hmat[i] = Hmat[i] * (WTV[i] / (WTWH[i] + DBL_EPSILON));
             }
 
-            //for(i = 0; i < cols; i++) {
-            //    for(j = 0; j < n_comp; j++) {
-            //        printf("%f ", Hmat[j * cols + i]);
-            //    }
-            //    printf("\n");
-            //}
-            //printf("\n");
-            //printf("\n");
-
-
         }
 
         // Master send H to workers.
@@ -296,56 +270,78 @@ int main(int argc, char* argv[]) {
         /* -------------------------------------------------- */
         // Similar to updating H.
         // Compute VHTblock.
-        //if(rank != MASTER) {
-        //    for(k = 0; k < n_comp; k++) {
-        //        for(j = 0; j < bs_rows; j++) {
-        //            VHTblock[k * bs_rows + j] = 0.0;  // Initialize element (k, j) to zero.
-        //            for(i = 0; i < cols; i++) {
-        //                // Note that the transpose of Hmat is accessed here.
-        //                VHTblock[k * bs_rows + j] += Vrow[j * cols + i] * Hmat[i * n_comp + k];
-        //            }
-        //        }
-        //    }
-        //}
+        if(rank != MASTER) {
+            for(k = 0; k < n_comp; k++) {
+                for(j = 0; j < bs_rows; j++) {
+                    VHTblock[j * n_comp + k] = 0.0;  // Initialize element (k, j) to zero.
+                    for(i = 0; i < cols; i++) {
+                        // Note that the transpose of Hmat is accessed here.
+                        VHTblock[j * n_comp + k] += Vrow[j * cols + i] * Hmat[k * cols + i];
+                    }
+                }
+            }
+        }
 
-        //// Send blocks of VHT to master, concatenate into one array.
-        //MPI_Gatherv(VHTblock, bs_rows * n_comp, MPI_DOUBLE, VHT, rcountsW, displsW, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
+        // Send blocks of VHT to master, concatenate into one array.
+        MPI_Gatherv(VHTblock, bs_rows * n_comp, MPI_DOUBLE, VHT, rcountsW, displsW, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
 
-        //if(rank == MASTER) {
-        //    // Compute HHT = H * H'.
-        //    for(k = 0; k < n_comp; k++) {
-        //        for(i = 0; i < n_comp; i++) {
-        //            HHT[k * n_comp + i] = 0.0;  // Initialize element (k, i) to zero.
-        //            for(j = 0; j < cols; j++) {
-        //                // Note that the transpose of Hmat is accessed here (H * H').
-        //                HHT[k * n_comp + i] += Hmat[k * cols + j] * Hmat[j * n_comp + i];
-        //            }
-        //        }
-        //    }
+        if(rank == MASTER) {
+            // Compute HHT = H * H'.
+            for(k = 0; k < n_comp; k++) {
+                for(i = 0; i < n_comp; i++) {
+                    HHT[k * n_comp + i] = 0.0;  // Initialize element (k, i) to zero.
+                    for(j = 0; j < cols; j++) {
+                        // Note that the transpose of Hmat is accessed here (H * H').
+                        HHT[k * n_comp + i] += Hmat[k * cols + j] * Hmat[i * cols + j];
+                    }
+                }
+            }
 
-        //    // Compute WHHT = W * HHT
-        //    for(k = 0; k < n_comp; k++) {
-        //        for(j = 0; j < rows; j++) {
-        //            WHHT[k * rows + j] = 0.0;  // Initialize element (k, j) to zero.
-        //            for(i = 0; i < n_comp; i++) {
-        //                WHHT[j * n_comp + i] += Wmat[k * n_comp + j] * HHT[k * n_comp + i];
-        //            }
-        //        }
-        //    }
+            // Compute WHHT = W * HHT
+            for(k = 0; k < n_comp; k++) {
+                for(j = 0; j < rows; j++) {
+                    WHHT[j * n_comp + k] = 0.0;  // Initialize element (k, j) to zero.
+                    for(i = 0; i < n_comp; i++) {
+                        WHHT[j * n_comp + k] += Wmat[j * n_comp + i] * HHT[k * n_comp + i];
+                    }
+                }
+            }
 
-        //    // Update W.
-        //    for(i = 0; i < rows * n_comp; i++) {
-        //        Wmat[i] = Wmat[i] * (VHT[i] / (WHHT[i] + DBL_EPSILON));
-        //    }
+            // Update W.
+            for(i = 0; i < rows * n_comp; i++) {
+                Wmat[i] = Wmat[i] * (VHT[i] / (WHHT[i] + DBL_EPSILON));
+            }
+        }
 
-        //}
-
-        ////// Master send W to workers.
-        //MPI_Bcast(Wmat, rows * n_comp, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
+        // Master send W to workers.
+        MPI_Bcast(Wmat, rows * n_comp, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
 
     }
 
-    // TODO: compute reconstruction error one last time.
+    // Compute reconstruction error one last time.
+    if(rank != MASTER) {
+        res2 = 0.0;
+        for(i = 0; i < rows; i++) {
+            for(j = 0; j < bs_cols; j++) {
+                rec = 0.0;  // Initialize reconstruction of element (i, j) to zero.
+                for(k = 0; k < n_comp; k++) {
+                    // Squared difference between V and its reconstruction at point (i, j).
+                    rec += Wmat[i * n_comp + k] * Hmat[k * cols + (rank - 1) * bs_cols + j];
+                }
+                // Add the squared residual for the current position.
+                res2 += pow(Vcol[i * bs_cols + j] - rec, 2);
+            }
+        }
+    }
+
+    // Sum all squared residuals on master.
+    MPI_Reduce(&res2, &res2_buff, 1, MPI_DOUBLE, MPI_SUM, MASTER, MPI_COMM_WORLD);
+
+    if(rank == MASTER) {
+        // Compute and print reconstruction error.
+        err = 0.5 * sqrt(res2_buff);
+        printf("Reconstruction error: %.4e\n", err);
+    }
 
     // Free memory allocated for all matrices.
     free(Wmat);
