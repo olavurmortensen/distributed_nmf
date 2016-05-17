@@ -1,0 +1,12 @@
+### Start Mon May 16 14:00:01 2016
+# /opt/oracle/solarisstudio12.4/bin/../bin/amd64/er_archive -nA -O /zhome/14/2/64409/Courses/lsm/project/distributed_nmf/collect_dnmf_exec_2814266.er/M_r19.er/er_archive.log /zhome/14/2/64409/Courses/lsm/project/distributed_nmf/collect_dnmf_exec_2814266.er/M_r19.er
+Copying `/opt/openmpi/1.6.5/sun/lib/openmpi/mca_coll_hierarch.so'
+  to `/zhome/14/2/64409/Courses/lsm/project/distributed_nmf/collect_dnmf_exec_2814266.er/archives/2622878802'
+Copying `/opt/openmpi/1.6.5/sun/lib/openmpi/mca_coll_sync.so'
+  to `/zhome/14/2/64409/Courses/lsm/project/distributed_nmf/collect_dnmf_exec_2814266.er/archives/234999979'
+Copying `/usr/lib64/libmlx4-rdmav2.so'
+  to `/zhome/14/2/64409/Courses/lsm/project/distributed_nmf/collect_dnmf_exec_2814266.er/archives/1158762029'
+Copying `/usr/lib64/libmthca-rdmav2.so'
+  to `/zhome/14/2/64409/Courses/lsm/project/distributed_nmf/collect_dnmf_exec_2814266.er/archives/3817962208'
+Copying `/lib64/libgcc_s-4.4.7-20120601.so.1'
+  to `/zhome/14/2/64409/Courses/lsm/project/distributed_nmf/collect_dnmf_exec_2814266.er/archives/1965678199'

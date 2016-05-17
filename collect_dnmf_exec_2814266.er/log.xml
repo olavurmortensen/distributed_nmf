@@ -1,0 +1,35 @@
+<experiment version="12.4">
+<collector>Oracle Solaris Studio 12.4 Performance Analyzer 12.4 Linux_x64 2014/10/21</collector>
+</experiment>
+<system hostname="n-62-23-26" arch="x86_64" os="Linux 2.6.32-573.22.1.el6.x86_64">
+  <cpu id="0" clk="1200"/>
+  <cpu id="1" clk="1200"/>
+  <cpu id="2" clk="1200"/>
+  <cpu id="3" clk="1200"/>
+  <cpu id="4" clk="1200"/>
+  <cpu id="5" clk="1200"/>
+  <cpu id="6" clk="1200"/>
+  <cpu id="7" clk="1200"/>
+  <cpu id="8" clk="1200"/>
+  <cpu id="9" clk="1200"/>
+  <cpu id="10" clk="1200"/>
+  <cpu id="11" clk="1200"/>
+  <cpu id="12" clk="1200"/>
+  <cpu id="13" clk="1200"/>
+  <cpu id="14" clk="1200"/>
+  <cpu id="15" clk="1200"/>
+  <cpu id="16" clk="1200"/>
+  <cpu id="17" clk="1200"/>
+  <cpu id="18" clk="1200"/>
+  <cpu id="19" clk="1200"/>
+</system>
+<setting MPIexperiment="T" version="OPENMPI" />
+<process pid="3786" ppid="3776" pgrp="3694" sid="3694" pagesz="4096" wsize="64" />
+<event kind="run" tstamp="2820159.050517842" time="1463399997"/>
+<event kind="mpi_trace_version" text="1.12.4 salmon"/>
+<event kind="mpi_trace_version" text="OTF version 1.12.4 salmon"/>
+<event kind="mpi_trace_version" text="Sun Studio VampirTrace 5.14.3"/>
+<event kind="mpi_max_rank" ranks="20"/>
+<event kind="mpipp" name="er_vtunify" time="0.709" size="96"/>
+<event kind="mpipp" name="er_mpipp" time="0.204" size="596680"/>
+<event kind="exit" tstamp="7.525720974" exit_code="0" exit_sig="0" pid="3929"/>

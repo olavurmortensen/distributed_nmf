@@ -1,0 +1,14 @@
+### Start Mon May 16 14:00:01 2016
+# /opt/oracle/solarisstudio12.4/bin/../bin/amd64/er_archive -nA -O /zhome/14/2/64409/Courses/lsm/project/distributed_nmf/collect_dnmf_exec_2814266.er/M_r17.er/er_archive.log /zhome/14/2/64409/Courses/lsm/project/distributed_nmf/collect_dnmf_exec_2814266.er/M_r17.er
+Copying `/usr/lib64/libibverbs.so.1.0.0'
+  to `/zhome/14/2/64409/Courses/lsm/project/distributed_nmf/collect_dnmf_exec_2814266.er/archives/1846582997'
+Copying `/usr/lib64/librdmacm.so.1.0.0'
+  to `/zhome/14/2/64409/Courses/lsm/project/distributed_nmf/collect_dnmf_exec_2814266.er/archives/2893238255'
+Copying `/opt/openmpi/1.6.5/sun/lib/openmpi/mca_btl_self.so'
+  to `/zhome/14/2/64409/Courses/lsm/project/distributed_nmf/collect_dnmf_exec_2814266.er/archives/3868550852'
+Copying `/opt/openmpi/1.6.5/sun/lib/openmpi/mca_btl_sm.so'
+  to `/zhome/14/2/64409/Courses/lsm/project/distributed_nmf/collect_dnmf_exec_2814266.er/archives/1141655722'
+Copying `/opt/openmpi/1.6.5/sun/lib/openmpi/mca_coll_basic.so'
+  to `/zhome/14/2/64409/Courses/lsm/project/distributed_nmf/collect_dnmf_exec_2814266.er/archives/377196283'
+Copying `/opt/openmpi/1.6.5/sun/lib/openmpi/mca_coll_tuned.so'
+  to `/zhome/14/2/64409/Courses/lsm/project/distributed_nmf/collect_dnmf_exec_2814266.er/archives/71417605'
