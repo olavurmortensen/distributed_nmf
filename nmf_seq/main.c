@@ -59,6 +59,7 @@ int main(int argc, char* argv[]) {
     comp_err = atoi(argv[5]);
     print_err = atoi(argv[6]);
 
+    start = clock();
 
     /* Allocate matrices. */
     /* ----------------------------------------------- */
@@ -97,7 +98,6 @@ int main(int argc, char* argv[]) {
     }
 
     /* Main algorithm loop. */
-    start = clock();
     for(iter = 0; iter < n_iter; iter++) {
         /* Compute the sum of squared residuals. */
         /* -------------------------------------------------- */
@@ -220,10 +220,6 @@ int main(int argc, char* argv[]) {
         printf("%.4e\n", err);
     }
 
-    stop = clock();
-
-    printf("%f\n", (double)(stop - start) / CLOCKS_PER_SEC);
-
     // Free memory allocated for all matrices.
     free(V);
     free(Wmat);
@@ -234,6 +230,10 @@ int main(int argc, char* argv[]) {
     free(VHT);
     free(HHT);
     free(WHHT);
+
+    stop = clock();
+
+    printf("%f\n", (double)(stop - start) / CLOCKS_PER_SEC);
 
     return 0;
 }

@@ -114,6 +114,10 @@ int main(int argc, char* argv[]) {
     bs_cols = (int) ((float) cols / numworkers);
     bs_rows = (int) ((float) rows / numworkers);
 
+    if(rank == MASTER) {
+        t1 = MPI_Wtime();  // Start "clock".
+    }
+
     // Used in MPI_Gatherv()
     // First for when updating H.
     displs = malloc(size * sizeof(int));
@@ -189,10 +193,6 @@ int main(int argc, char* argv[]) {
     /* Send W and H from master to workers using collective communications. */
     MPI_Bcast(Wmat, rows * n_comp, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
     MPI_Bcast(Hmat, n_comp * cols, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
-
-    if(rank == MASTER) {
-        t1 = MPI_Wtime();  // Start "clock".
-    }
 
     /* Main algorithm loop. */
     for(iter = 0; iter < n_iter; iter++) {
@@ -366,11 +366,6 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    if(rank == MASTER) {
-        t2 = MPI_Wtime();  // Stop "clock".
-        printf("%f\n", t2 - t1);
-    }
-
     // Free memory allocated for all matrices.
     free(Wmat);
     free(Hmat);
@@ -392,6 +387,11 @@ int main(int argc, char* argv[]) {
     } else {
         free(Vcol);
         free(Vrow);
+    }
+
+    if(rank == MASTER) {
+        t2 = MPI_Wtime();  // Stop "clock".
+        printf("%f\n", t2 - t1);
     }
 
     MPI_Finalize();
