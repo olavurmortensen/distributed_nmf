@@ -33,6 +33,8 @@ int main(int argc, char* argv[]) {
         cols, // Columns in V matrix.
         n_comp,  // Number of NMF components.
         n_iter,  // Number of iterations of the NMF algorithm.
+        comp_err,  // Compute reconstruction error every comp_err iterations.
+        print_err,  // Whether or not to print the reconstruction error to console.
         rank,  // ID of current task.
         size,  // Total number of tasks.
         bs_cols,  // Block size, number of columns of V stored on each process.
@@ -43,8 +45,8 @@ int main(int argc, char* argv[]) {
         *rcountsW,
         numworkers,
         errorcode,
+        memory_footprint,
         iter,
-        comp_err,
         i, j, k, m;  // Index variables.
 
     double *Vcol,  // Subset of columns of V.
@@ -64,7 +66,8 @@ int main(int argc, char* argv[]) {
            res2,  // Sum of squared residuals (each worker's contribution).
            res2_buff,
            rec,  // Reconstuction of a single point in the matrix V.
-           err;  // Error, err = 0.5 * sqrt(sum(res2)).
+           err,  // Error, err = 0.5 * sqrt(sum(res2)).
+           t1, t2;  // Timing the main algorithm loop.
 
     double randomDouble();  // Generates a random double between 0 and 1.
 
@@ -95,6 +98,7 @@ int main(int argc, char* argv[]) {
     n_comp = atoi(argv[3]);
     n_iter = atoi(argv[4]);
     comp_err = atoi(argv[5]);
+    print_err = atoi(argv[6]);
 
     if(rows % numworkers != 0 || cols % numworkers != 0) {
         // NOTE: MPI_Abort is not the ideal way to quit MPI.
@@ -133,6 +137,7 @@ int main(int argc, char* argv[]) {
 
     /* Allocate matrices. */
     /* ----------------------------------------------- */
+    memory_footprint = 4 * (rows * n_comp);  // TODO: Calculate the memory usage of the program:
     Wmat = malloc(rows * n_comp * sizeof(double));
     Hmat = malloc(n_comp * cols * sizeof(double));
     WTVblock = malloc(n_comp * bs_cols * sizeof(double));
@@ -169,7 +174,6 @@ int main(int argc, char* argv[]) {
 
         // Initialize Vcol and Vrow.
         // In reality, Vcol and Vrow would be read from hard drives on the cluster, or something along those lines.
-        // TODO: randomly initialize Vcol and communicate to get Vrow.
         for(i = 0; i < rows; i++) {
             for(j = 0; j < bs_cols; j++) {
                 Vcol[i * bs_cols + j] = 1.0;
@@ -185,6 +189,10 @@ int main(int argc, char* argv[]) {
     /* Send W and H from master to workers using collective communications. */
     MPI_Bcast(Wmat, rows * n_comp, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
     MPI_Bcast(Hmat, n_comp * cols, MPI_DOUBLE, MASTER, MPI_COMM_WORLD);
+
+    if(rank == MASTER) {
+        t1 = MPI_Wtime();  // Start "clock".
+    }
 
     /* Main algorithm loop. */
     for(iter = 0; iter < n_iter; iter++) {
@@ -212,7 +220,9 @@ int main(int argc, char* argv[]) {
             if(rank == MASTER) {
                 // Compute and print reconstruction error.
                 err = 0.5 * sqrt(res2_buff);
-                printf("%.4e\n", err);
+                if(print_err) {
+                    printf("%.4e\n", err);
+                }
             }
         }
 
@@ -351,7 +361,14 @@ int main(int argc, char* argv[]) {
     if(rank == MASTER) {
         // Compute and print reconstruction error.
         err = 0.5 * sqrt(res2_buff);
-        printf("Reconstruction error: %.4e\n", err);
+        if(print_err) {
+            printf("%.4e\n", err);
+        }
+    }
+
+    if(rank == MASTER) {
+        t2 = MPI_Wtime();  // Stop "clock".
+        printf("%f\n", t2 - t1);
     }
 
     // Free memory allocated for all matrices.
@@ -365,9 +382,11 @@ int main(int argc, char* argv[]) {
     free(VHTblock);
     if(rank == MASTER) {
         free(WTV);
+        free(WTVrecv);
         free(WTW);
         free(WTWH);
         free(VHT);
+        free(VHTrecv);
         free(HHT);
         free(WHHT);
     } else {
